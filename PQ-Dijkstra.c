@@ -288,6 +288,7 @@ a_star (double **board, int x_size, int y_size, params par)
 int
 main ()
 {
+    printf ("statrted: \n");
     int x_size, y_size;
     double **board;
     node **open;
