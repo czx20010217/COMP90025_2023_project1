@@ -7,6 +7,7 @@
 #include <omp.h>
 #include <float.h>      // for DBL_MAX
 #include <time.h>       // for clock()
+#include<unistd.h>
 
 #define MAX_NODES 100000
 
@@ -151,48 +152,124 @@ pq_pop_min ()
     return retval;
 }
 
-int main() {
+/******************************************************************************/
+/*
+ * Calculate the cost of each square in the grid, given its seed.
+ * This is deliberately expensive so that overall program run-time is not
+ * dominated by overheads.
+ * More computationally expensive if res is smaller.
+ * Wider range of costs if scale is larger.
+ *
+ * Based on Park and Miller's Oct 1988 CACM random number generator
+ */
+
+typedef struct {
+    int par1, par2;
+} params;
+
+double
+cell_cost (long int seed, params *par)
+{
+    /* For debugging only */
+    // return (seed);
+
+    /* Real code */
+    seed = -seed;       // Make high bits non-zero
+    int res   = par->par1;
+    int scale = par->par2;
+
+    int cost;
+    
+    for (cost = 0; seed >> res != 0; cost++) {
+        seed = (16807 * seed) % 2147483647;
+    }
+
+    return (10 + (cost >> (8 * sizeof(unsigned long) - res - scale))) / 10.0;
+}
+
+double **
+read_board (int x_size, int y_size)
+{
+    double **board = (double **)malloc (x_size * sizeof (*board));
+    double *board_data = (double*)malloc (x_size*y_size * sizeof(*board_data));
+    assert_msg(board != NULL && board_data != NULL, "Could not allocate board");
+
+    for (int i = 0; i < x_size; i++) {
+        board[i] = board_data + i*y_size;
+
+        for (int j = 0; j < y_size; j++) {
+            assert_msg (scanf ("%lf", &(board[i][j])) == 1, "Failed to read board");
+        }
+    }
+
+    return board;
+}
+
+node **
+init_cand (int x_size, int y_size)
+{
+    node **cand = (node **)malloc (x_size * sizeof (node*));
+    node *cand_data = (node*)malloc (x_size * y_size * sizeof(node));
+    assert_msg(cand != NULL && cand_data != NULL, "Could not allocate open");
+
+    memset (cand_data, 0, y_size * x_size * sizeof(node));
+
+    for (int i = 0; i < x_size; i++) {
+        cand[i] = cand_data + i*y_size;
+        for (int j = 0; j < y_size; j++)
+            cand[i][j].cost = DBL_MAX;
+    }
+
     pq_init();
-    #pragma omp parallel num_threads(16)
-    {
-        int thread_id = omp_get_thread_num();
-        int cpu_num = sched_getcpu();
-        int socket_id = thread_id % 2; // Simulated socket assignment
+    pq_insert(&(cand[0][0]));
 
-        #pragma omp critical
-        {
-            printf("Thread %d is on socket %d\n", thread_id, cpu_num);
-        }
-    }
-    
-    #pragma omp parallel num_threads(16)
-    {
-        int thread_id = omp_get_thread_num();
-        node *cand_data = (node*)malloc (sizeof(node));
+    return cand;
+}
 
-        #pragma omp critical
-        {
-            if (cand_data == NULL) {
-                printf("Memory allocation failed on thread %d %d.\n", thread_id);
+int
+main ()
+{
+    printf ("statrted: \n");
+    int x_size, y_size;
+    double **board;
+    // node **open;
+    // int i,j;
+    params par;
+    int some = 10;
+
+    assert_msg (scanf ("%d %d %d %d", &x_size, &y_size, &(par.par1), &(par.par2)) == 4, "Failed to read size");
+    board = read_board(x_size, y_size);
+
+    node **cand = init_cand (x_size, y_size);
+    cand[0][0].cost = board[0][0];
+
+
+    clock_t t = clock();
+    int base= 0;
+
+    while (base < 5){
+        // #pragma omp parallel for collapse(2)
+        for (int x = 0; x <= 10; x++) {
+            for (int y = 0; y <= 10; y++) {
+                // printf ("x, y: %d, %d\n", x, y);
+                double node_cost = cell_cost(board[base+x][base+y], &par);
+
+                if (0 + node_cost < cand[x][y].cost) {
+                    cand[base+x][base+y].cost = 0 + node_cost;
+                    cand[base+x][base+y].x = x;
+                    cand[base+x][base+y].y = y;
+                    /* Here we simply insert a better path into the PQ. */
+                    /* It is more efficient to change the weight of */
+                    /* the old entry, but this also works. */
+                    // pq_insert (&(cand[new_x][new_y]));
+                    pq_insert (&(cand[base+x][base+y]));
+                }
             }
-            
-            cand_data->cost = (double)thread_id;
-            pq_insert(cand_data);
-            printf("Thread %d is inserting number %f\n", thread_id, cand_data->cost);
         }
+        base++;
     }
     
-    #pragma omp parallel num_threads(16)
-    {
-        int thread_id = omp_get_thread_num();
-
-        #pragma omp critical
-        {
-            
-            node* pivot = pq_pop_min();
-            printf("Thread %d is poping number %f\n", thread_id, pivot->cost);
-        }
-    }
-
+    printf ("Time: %ld\n", clock() - t);
+    printf ("ended: \n");
     return 0;
 }
