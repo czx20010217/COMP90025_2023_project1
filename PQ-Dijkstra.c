@@ -63,13 +63,16 @@ typedef struct {
 double
 cell_cost (long int seed, params *par)
 {
-    const unsigned long a = 16807;
-    const unsigned long m = 2147483647;
+    // const unsigned long a = 16807;
+    // const unsigned long m = 2147483647;
 
     /* For debugging only */
     // return (seed);
 
     /* Real code */
+    const long a = 16807;
+    const long m = 2147483647;
+
     seed = -seed;       // Make high bits non-zero
     int res   = par->par1;
     int scale = par->par2;
@@ -245,7 +248,6 @@ a_star (double **board, int x_size, int y_size, params par)
     while (!is_equal(pivot = pq_pop_min(), x_end, y_end)) {
         pivot->is_closed = CLOSED;
         printf ("x, y: %d, %d\n", pivot->x, pivot->y);
-
         /* Expand all neighbours */
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy++) {
@@ -289,7 +291,6 @@ a_star (double **board, int x_size, int y_size, params par)
 int
 main ()
 {
-    printf ("statrted: \n");
     int x_size, y_size;
     double **board;
     node **open;

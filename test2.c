@@ -273,30 +273,34 @@ main ()
                 double node_cost;
                 // printf ("x, y: %d, %d\n", x, y);
                 if (new_x < 0 || new_x > x_end || new_y < 0 || new_y > y_end || (x == 0 && y == 0)){
-                    node_cost = 1;
-                }else{
-                    if (!cand[new_x][new_y].is_closed){
-                        node_cost = cell_cost(3.2, &par);
-                        //node_cost = board[new_x][new_y];
-                        if (cost + node_cost < cand[new_x][new_x].cost) {
-                            cand[new_x][new_y].cost = cost + node_cost;
-                            cand[new_x][new_y].x = new_x;
-                            cand[new_x][new_y].y = new_x;
-                            cand[new_x][new_y].prev_x = pivot->x;
-                            cand[new_x][new_y].prev_y = pivot->y;
-                            /* Here we simply insert a better path into the PQ. */
-                            /* It is more efficient to change the weight of */
-                            /* the old entry, but this also works. */
-                            // pq_insert (&(cand[new_x][new_y]));
-                            pq_insert (&(cand[new_x][new_y]));
-                        }
+                    continue;
+                if (!cand[new_x][new_y].is_closed){
+                    // node_cost = cell_cost(1000000000, &par);
+                    node_cost = board[new_x][new_y];
+                    if (cost + node_cost < cand[new_x][new_x].cost) {
+                        cand[new_x][new_y].cost = cost + node_cost;
+                        cand[new_x][new_y].x = new_x;
+                        cand[new_x][new_y].y = new_x;
+                        cand[new_x][new_y].prev_x = c_x;
+                        cand[new_x][new_y].prev_y = c_x;
+                        /* Here we simply insert a better path into the PQ. */
+                        /* It is more efficient to change the weight of */
+                        /* the old entry, but this also works. */
+                        // pq_insert (&(cand[new_x][new_y]));
+                        pq_insert (&(cand[new_x][new_y]));
                     }
-                    
                 }
                 
             }
         }
+        
     }
+    node *p = &cand[x_end][y_end];
+    while (!is_equal(p, 0, 0)) {
+        printf ("%d %d\n", p->x, p->y);
+        p = &(cand[p->prev_x][p->prev_y]);
+    }
+    printf ("%d %d\n", 0, 0);
     
     printf ("Time: %ld\n", clock() - t);
     printf ("ended: \n");
