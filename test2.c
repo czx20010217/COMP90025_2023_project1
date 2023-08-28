@@ -1,8 +1,13 @@
+#define _GNU_SOURCE
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sched.h>
+#include <omp.h>
 #include <float.h>      // for DBL_MAX
 #include <time.h>       // for clock()
+#include<unistd.h>
 
 #define MAX_NODES 100000
 
@@ -14,6 +19,11 @@
 
 //#define DEBUG1(x) x
 #define DEBUG1(x)
+
+/* UNSEEN must be 0, as nodes initialized using memset */
+#define UNSEEN 0
+#define OPEN   1
+#define CLOSED 2
 
 void
 assert_msg (int cond, char *msg)
@@ -45,43 +55,6 @@ greater (node *n1, node *n2)
     return (n1->cost > n2->cost);
 }
 
-/******************************************************************************/
-/*
- * Calculate the cost of each square in the grid, given its seed.
- * This is deliberately expensive so that overall program run-time is not
- * dominated by overheads.
- * More computationally expensive if res is smaller.
- * Wider range of costs if scale is larger.
- *
- * Based on Park and Miller's Oct 1988 CACM random number generator
- */
-
-typedef struct {
-    int par1, par2;
-} params;
-
-double
-cell_cost (long int seed, params *par)
-{
-    const unsigned long a = 16807;
-    const unsigned long m = 2147483647;
-
-    /* For debugging only */
-    // return (seed);
-
-    /* Real code */
-    seed = -seed;       // Make high bits non-zero
-    int res   = par->par1;
-    int scale = par->par2;
-
-    int cost;
-    
-    for (cost = 0; seed >> res != 0; cost++) {
-        seed = (a * seed) % m;
-    }
-
-    return (10 + (cost >> (8 * sizeof(unsigned long) - res - scale))) / 10.0;
-}
 /******************************************************************************/
 /* Priority queue */
 /* Entries are of type *node. */
@@ -185,6 +158,42 @@ pq_pop_min ()
 }
 
 /******************************************************************************/
+/*
+ * Calculate the cost of each square in the grid, given its seed.
+ * This is deliberately expensive so that overall program run-time is not
+ * dominated by overheads.
+ * More computationally expensive if res is smaller.
+ * Wider range of costs if scale is larger.
+ *
+ * Based on Park and Miller's Oct 1988 CACM random number generator
+ */
+
+typedef struct {
+    int par1, par2;
+} params;
+
+double
+cell_cost (long int seed, params *par)
+{
+    const unsigned long a = 16807;
+    const unsigned long m = 2147483647;
+    /* For debugging only */
+    // return (seed);
+
+    /* Real code */
+    seed = -seed;       // Make high bits non-zero
+    int res   = par->par1;
+    int scale = par->par2;
+
+    int cost;
+    printf("current input: %ld, %d, %d", seed, res, scale);
+    
+    for (cost = 0; seed >> res != 0; cost++) {
+        seed = (a * seed) % m;
+    }
+
+    return (10 + (cost >> (8 * sizeof(unsigned long) - res - scale))) / 10.0;
+}
 
 double **
 read_board (int x_size, int y_size)
@@ -225,84 +234,71 @@ init_cand (int x_size, int y_size)
     return cand;
 }
 
-/******************************************************************************/
-
-/* UNSEEN must be 0, as nodes initialized using memset */
-#define UNSEEN 0
-#define OPEN   1
-#define CLOSED 2
-
-void
-a_star (double **board, int x_size, int y_size, params par)
-{
-    int x_end = x_size - 1;
-    int y_end = y_size - 1;
-
-    node *pivot;
-    node **cand = init_cand (x_size, y_size);
-    cand[0][0].cost = board[0][0];
-
-    while (!is_equal(pivot = pq_pop_min(), x_end, y_end)) {
-        pivot->is_closed = CLOSED;
-        printf ("x, y: %d, %d\n", pivot->x, pivot->y);
-
-        /* Expand all neighbours */
-        for (int dx = -1; dx <= 1; dx++) {
-            for (int dy = -1; dy <= 1; dy++) {
-                int new_x = pivot->x + dx;
-                int new_y = pivot->y + dy;
-                if (new_x < 0 || new_x > x_end || new_y < 0 || new_y > y_end
-                              || (dx == 0 && dy == 0))
-                    continue;
-                if (!cand[new_x][new_y].is_closed) {
-                    /* Note: this calculates costs multiple times */
-                    /* You will probably want to avoid that, */
-                    /* but this version is easy to parallelize. */
-                    double node_cost = cell_cost(board[new_x][new_y], &par);
-                    if (pivot->cost + node_cost < cand[new_x][new_y].cost) {
-                        cand[new_x][new_y].cost = pivot->cost + node_cost;
-                        cand[new_x][new_y].x = new_x;
-                        cand[new_x][new_y].y = new_y;
-                        cand[new_x][new_y].prev_x = pivot->x;
-                        cand[new_x][new_y].prev_y = pivot->y;
-                        /* Here we simply insert a better path into the PQ. */
-                        /* It is more efficient to change the weight of */
-                        /* the old entry, but this also works. */
-                        pq_insert (&(cand[new_x][new_y]));
-                    }
-                }
-            }
-        }
-        DEBUG(for (int i = 0; i < y_size; i++) { for (int j = 0; j < x_size; j++) { printf ("(%lg)%lg%c ", board[i][j], cand[i][j].cost, " _*"[cand[i][j].is_closed]); } printf ("\n"); })
-    }
-
-    node *p = &cand[x_end][y_end];
-    while (!is_equal(p, 0, 0)) {
-        printf ("%d %d\n", p->x, p->y);
-        p = &(cand[p->prev_x][p->prev_y]);
-    }
-    printf ("%d %d\n", 0, 0);
-}
-
-/******************************************************************************/
-
 int
 main ()
 {
     printf ("statrted: \n");
     int x_size, y_size;
     double **board;
-    node **open;
-    int i,j;
+    // node **open;
+    // int i,j;
     params par;
+    int some = 10;
 
     assert_msg (scanf ("%d %d %d %d", &x_size, &y_size, &(par.par1), &(par.par2)) == 4, "Failed to read size");
     board = read_board(x_size, y_size);
 
+    node **cand = init_cand (x_size, y_size);
+    cand[0][0].cost = board[0][0];
+    int x_end = x_size - 1;
+    int y_end = y_size - 1;
+    node *pivot;
+
 
     clock_t t = clock();
-    a_star (board, x_size, y_size, par);
-    printf ("Time: %ld\n", clock() - t);
 
+    while (!is_equal(pivot = pq_pop_min(), x_end, y_end)){
+        pivot->is_closed = CLOSED;
+        printf ("x, y: %d, %d\n", pivot->x, pivot->y);
+        int cost = pivot->cost;
+        int c_x = pivot->x;
+        int c_y = pivot->y;
+
+
+        // #pragma omp parallel for collapse(2)
+        for (int x = -1; x <= 1; x++) {
+            for (int y = -1; y <= 1; y++) {
+                int new_x = c_x + x;
+                int new_y = c_y + y;
+                double node_cost;
+                // printf ("x, y: %d, %d\n", x, y);
+                if (new_x < 0 || new_x > x_end || new_y < 0 || new_y > y_end || (x == 0 && y == 0)){
+                    node_cost = 1;
+                }else{
+                    if (!cand[new_x][new_y].is_closed){
+                        node_cost = cell_cost(3.2, &par);
+                        //node_cost = board[new_x][new_y];
+                        if (cost + node_cost < cand[new_x][new_x].cost) {
+                            cand[new_x][new_y].cost = cost + node_cost;
+                            cand[new_x][new_y].x = new_x;
+                            cand[new_x][new_y].y = new_x;
+                            cand[new_x][new_y].prev_x = pivot->x;
+                            cand[new_x][new_y].prev_y = pivot->y;
+                            /* Here we simply insert a better path into the PQ. */
+                            /* It is more efficient to change the weight of */
+                            /* the old entry, but this also works. */
+                            // pq_insert (&(cand[new_x][new_y]));
+                            pq_insert (&(cand[new_x][new_y]));
+                        }
+                    }
+                    
+                }
+                
+            }
+        }
+    }
+    
+    printf ("Time: %ld\n", clock() - t);
+    printf ("ended: \n");
     return 0;
 }

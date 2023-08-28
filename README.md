@@ -3,3 +3,5 @@
 
 gcc -fopenmp -o test1 test1.c
 .\test1 < input1.txt
+
+.\PQ-Dijkstra < input1.txt
