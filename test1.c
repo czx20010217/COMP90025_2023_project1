@@ -269,37 +269,36 @@ main ()
         int c_y = pivot->y;
 
 
-        // #pragma omp parallel for collapse(2) firstprivate(cost, c_x, c_y)
+        #pragma omp parallel for collapse(2) firstprivate(cost, c_x, c_y)
         for (int x = -1; x <= 1; x++) {
             for (int y = -1; y <= 1; y++) {
                 int new_x = c_x + x;
                 int new_y = c_y + y;
-                double node_cost;
-                // printf ("x, y: %d, %d\n", x, y);
-                if (new_x < 0 || new_x > x_end || new_y < 0 || new_y > y_end || (x == 0 && y == 0)){
-                    node_cost = 1;
-                }else{
-                    if (!cand[new_x][new_y].is_closed){
-                        node_cost = cell_cost(board[new_x][new_y], &par);
-                        // node_cost = board[new_x][new_y];
-                        if (cost + node_cost < cand[new_x][new_y].cost) {
-                            cand[new_x][new_y].cost = cost + node_cost;
-                            cand[new_x][new_y].x = new_x;
-                            cand[new_x][new_y].y = new_x;
-                            cand[new_x][new_y].prev_x = c_x;
-                            cand[new_x][new_y].prev_y = c_y;
-                            /* Here we simply insert a better path into the PQ. */
-                            /* It is more efficient to change the weight of */
-                            /* the old entry, but this also works. */
-                            // pq_insert (&(cand[new_x][new_y]));
-                            #pragma omp critical
-                            {pq_insert (&(cand[new_x][new_y]));}
-                            
-                        }
-                    }
-                    
-                }
                 
+                // printf ("x, y: %d, %d\n", x, y);
+                if (new_x < 0 || new_x > x_end || new_y < 0 || new_y > y_end
+                              || (x == 0 && y == 0))
+                    continue;
+                if (!cand[new_x][new_y].is_closed){
+                    double node_cost = cell_cost(board[new_x][new_y], &par);
+                    if (cost + node_cost < cand[new_x][new_y].cost) {
+                        /* Note: this calculates costs multiple times */
+                        /* You will probably want to avoid that, */
+                        /* but this version is easy to parallelize. */
+                        cand[new_x][new_y].cost = cost + node_cost;
+                        cand[new_x][new_y].x = new_x;
+                        cand[new_x][new_y].y = new_y;
+                        cand[new_x][new_y].prev_x = c_x;
+                        cand[new_x][new_y].prev_y = c_y;
+                        /* Here we simply insert a better path into the PQ. */
+                        /* It is more efficient to change the weight of */
+                        /* the old entry, but this also works. */
+                        //pq_insert (&(cand[new_x][new_y]));
+                        #pragma omp critical
+                        {pq_insert (&(cand[new_x][new_y]));}
+                        
+                    }
+                }
             }
         }
         
