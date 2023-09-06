@@ -172,9 +172,12 @@ typedef struct {
     int par1, par2;
 } params;
 
+int functionCallCount = 0;
+
 double
 cell_cost (long int seed, params *par)
 {
+    functionCallCount++;
     // const unsigned long a = 16807;
     // const unsigned long m = 2147483647;
     /* For debugging only */
@@ -217,6 +220,24 @@ read_board (int x_size, int y_size)
     return board;
 }
 
+double **
+init_cost_board (int x_size, int y_size)
+{
+    double **board = (double **)malloc (x_size * sizeof (*board));
+    double *board_data = (double*)malloc (x_size*y_size * sizeof(*board_data));
+    assert_msg(board != NULL && board_data != NULL, "Could not allocate board");
+
+    for (int i = 0; i < x_size; i++) {
+        board[i] = board_data + i*y_size;
+
+        for (int j = 0; j < y_size; j++) {
+            board[i][j] = -1;
+        }
+    }
+
+    return board;
+}
+
 node **
 init_cand (int x_size, int y_size)
 {
@@ -244,6 +265,7 @@ main ()
     printf ("statrted: \n");
     int x_size, y_size;
     double **board;
+    double **cost_board;
     // node **open;
     // int i,j;
     params par;
@@ -251,6 +273,7 @@ main ()
 
     assert_msg (scanf ("%d %d %d %d", &x_size, &y_size, &(par.par1), &(par.par2)) == 4, "Failed to read size");
     board = read_board(x_size, y_size);
+    cost_board = init_cost_board(x_size, y_size);
 
     node **cand = init_cand (x_size, y_size);
     cand[0][0].cost = board[0][0];
@@ -263,7 +286,6 @@ main ()
 
     while (!is_equal(pivot = pq_pop_min(), x_end, y_end)){
         pivot->is_closed = CLOSED;
-        printf ("x, y: %d, %d\n", pivot->x, pivot->y);
         int cost = pivot->cost;
         int c_x = pivot->x;
         int c_y = pivot->y;
@@ -280,7 +302,13 @@ main ()
                               || (x == 0 && y == 0))
                     continue;
                 if (!cand[new_x][new_y].is_closed){
-                    double node_cost = cell_cost(board[new_x][new_y], &par);
+                    double node_cost;
+                    if (cost_board[new_x][new_y] == -1){
+                        node_cost = cell_cost(board[new_x][new_y], &par);
+                        cost_board[new_x][new_y] = node_cost;
+                    }else{
+                        node_cost = cost_board[new_x][new_y];
+                    }
                     if (cost + node_cost < cand[new_x][new_y].cost) {
                         /* Note: this calculates costs multiple times */
                         /* You will probably want to avoid that, */
@@ -304,13 +332,17 @@ main ()
         
     }
     node *p = &cand[x_end][y_end];
+    printf("finalcost: %f\n", p->cost);
     while (!is_equal(p, 0, 0)) {
         printf ("%d %d\n", p->x, p->y);
+        printf("current cost: %f\n", p->cost);
         p = &(cand[p->prev_x][p->prev_y]);
     }
     printf ("%d %d\n", 0, 0);
     
     printf ("Time: %ld\n", clock() - t);
     printf ("ended: \n");
+
+    printf("count ended: %d\n", functionCallCount);
     return 0;
 }

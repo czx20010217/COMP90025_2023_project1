@@ -15,6 +15,8 @@
 //#define DEBUG1(x) x
 #define DEBUG1(x)
 
+int functionCallCount = 0;
+
 void
 assert_msg (int cond, char *msg)
 {
@@ -63,11 +65,12 @@ typedef struct {
 double
 cell_cost (long int seed, params *par)
 {
+    functionCallCount++;
     // const unsigned long a = 16807;
     // const unsigned long m = 2147483647;
 
     /* For debugging only */
-    // return (seed);
+    return (seed);
 
     /* Real code */
     const long a = 16807;
@@ -304,6 +307,6 @@ main ()
     clock_t t = clock();
     a_star (board, x_size, y_size, par);
     printf ("Time: %ld\n", clock() - t);
-
+    printf("count ended: %d\n", functionCallCount);
     return 0;
 }
