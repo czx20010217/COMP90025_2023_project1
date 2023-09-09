@@ -34,7 +34,7 @@ typedef struct{
     int  in_buckets_total;
     int  current_bucket;
     int  processed_nodes;
-    int  delta;
+    double  delta;
 } status;
 
 typedef struct {
@@ -88,6 +88,8 @@ cell_cost (long int seed, params *par)
     // printf("finish\n");
 
     return (10 + (cost >> (8 * sizeof(unsigned long) - res - scale))) / 10.0;
+    // return (seed);
+
 }
 
 double **
@@ -192,7 +194,7 @@ main ()
     stats->in_buckets_total = 1;
     stats->current_bucket = 0;
     stats->processed_nodes = 0;
-    stats->delta = 1;
+    stats->delta = 0.5;
     int activeVertices = 1;
     int x, y, dx, dy;
     double cost, new_cost;
@@ -206,6 +208,8 @@ main ()
 
     while (stats->in_buckets_total){
         // for (int i = 0; i < y_size; i++) { for (int j = 0; j < x_size; j++) { printf ("(%lg)%5.1lg", board[i][j], cand[i][j].cost); } printf ("\n"); }
+        // printf("current count: %d %d\n", functionCallCount, stats->in_buckets_total);
+        // printf("current end cost: %5.1f\n", cand[x_end][y_end].cost);
         stats->processed_nodes += activeVertices;
         activeVertices = 0;
         stats->in_bucket_current = 1;
@@ -213,11 +217,13 @@ main ()
             // for (int i = 0; i < y_size; i++) { for (int j = 0; j < x_size; j++) { printf ("(%lg)%5.1lg", board[i][j], cand[i][j].cost); } printf ("\n"); }
             stats->in_bucket_current = 0;
 
-            #pragma omp parallel for private(x, y) shared(stats) collapse(2) ////reduction(+ : activeVertices)
+            #pragma omp parallel for private(x, y) shared(stats) collapse(2) schedule(dynamic)////reduction(+ : activeVertices)
             for (x = 0; x < x_size; x++){
                 for (y = 0; y < y_size; y++){
                     if(__sync_bool_compare_and_swap(&(stats->buckets_map[x][y]), stats->current_bucket, -1)){
                         stats->deleted_map[x][y] = 1;
+
+                        #pragma omp critical
                         stats->in_buckets_total--;
 
                         // 8 direction visit
@@ -241,6 +247,7 @@ main ()
                                 if (cost > stats->delta){ continue;}
                                 new_cost = cand[x][y].cost + cost;
                                 if(new_cost < cand[new_x][new_y].cost){
+                                    #pragma omp critical
                                     if(stats->buckets_map[new_x][new_y] == -1) stats->in_buckets_total++;
 
                                     cand[new_x][new_y].cost = new_cost;
@@ -263,7 +270,7 @@ main ()
             }
 
         }
-        // #pragma omp parallel for private(x, y, dx, dy, cost, new_cost) shared(stats) collapse(2)
+        #pragma omp parallel for private(x, y) shared(stats) collapse(2)
         for (x = 0; x < x_size; x++){
             for (y = 0; y < y_size; y++){
                 if (stats->deleted_map[x][y] != 1){
@@ -287,7 +294,9 @@ main ()
                         if (cost < stats->delta) continue;
                         new_cost = cand[x][y].cost + cost;
                         if(new_cost < cand[new_x][new_y].cost){
+                            #pragma omp critical
                             if(stats->buckets_map[new_x][new_y] == -1) stats->in_buckets_total++;
+
                             cand[new_x][new_y].cost = new_cost;
                             cand[new_x][new_y].x = new_x;
                             cand[new_x][new_y].y = new_y;
@@ -311,7 +320,7 @@ main ()
 
     while (!is_equal(p, 0, 0)) {
         printf ("%d %d\n", p->x, p->y);
-        printf("current cost: %f\n", p->cost);
+        // printf("current cost: %f\n", p->cost);
         p = &(cand[p->prev_x][p->prev_y]);
     }
     printf ("%d %d\n", 0, 0);
