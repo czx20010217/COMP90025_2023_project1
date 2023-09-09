@@ -146,6 +146,25 @@ init_cand (int x_size, int y_size)
     return cand;
 }
 
+int relaex(int x, int y, int new_x, int new_y, double cost, status* stats, node **cand){
+    int old_bucket;
+    int new_bucket;
+    double old_distance_src;
+    double old_distance_dest;
+    int new_distance;
+    int flag1 = 0;
+    int flag2 = 0;
+
+    do
+    {
+        old_bucket = stats->buckets_map[new_x][new_y];
+        old_distance_src = cand[x][y].cost;
+        old_distance_dest = cand[new_x][new_y].cost;
+
+    } while ((!flag1));
+    return 0;
+}
+
 int
 main ()
 {
@@ -194,7 +213,7 @@ main ()
     stats->in_buckets_total = 1;
     stats->current_bucket = 0;
     stats->processed_nodes = 0;
-    stats->delta = 0.5;
+    stats->delta = 150;
     int activeVertices = 1;
     int x, y, dx, dy;
     double cost, new_cost;
@@ -202,13 +221,15 @@ main ()
 
 
     node **cand = init_cand (x_size, y_size);
+    cost_board[0][0] = cell_cost(board[0][0], &par);
     cand[0][0].cost = cell_cost(board[0][0], &par);
+    
     stats->buckets_map[0][0] = 0;
     printf("here\n");
 
     while (stats->in_buckets_total){
         // for (int i = 0; i < y_size; i++) { for (int j = 0; j < x_size; j++) { printf ("(%lg)%5.1lg", board[i][j], cand[i][j].cost); } printf ("\n"); }
-        // printf("current count: %d %d\n", functionCallCount, stats->in_buckets_total);
+        printf("current count: %d %d\n", functionCallCount, stats->in_buckets_total);
         // printf("current end cost: %5.1f\n", cand[x_end][y_end].cost);
         stats->processed_nodes += activeVertices;
         activeVertices = 0;
@@ -221,10 +242,16 @@ main ()
             for (x = 0; x < x_size; x++){
                 for (y = 0; y < y_size; y++){
                     if(__sync_bool_compare_and_swap(&(stats->buckets_map[x][y]), stats->current_bucket, -1)){
-                        stats->deleted_map[x][y] = 1;
+                        stats->deleted_map[x][y] = stats->current_bucket;
+                        // if (stats->in_buckets_total){printf("pos: %d %d\n", x, y);}
+
+
 
                         #pragma omp critical
-                        stats->in_buckets_total--;
+                        {
+                            stats->in_buckets_total--;
+                        }
+                        
 
                         // 8 direction visit
                         // #pragma omp parallel for collapse(2)
@@ -245,10 +272,14 @@ main ()
                                 
 
                                 if (cost > stats->delta){ continue;}
+
+                                #pragma omp critical
+                                {
                                 new_cost = cand[x][y].cost + cost;
                                 if(new_cost < cand[new_x][new_y].cost){
-                                    #pragma omp critical
-                                    if(stats->buckets_map[new_x][new_y] == -1) stats->in_buckets_total++;
+                                    
+                                    if(stats->buckets_map[new_x][new_y] == -1){stats->in_buckets_total++;}
+                                    
 
                                     cand[new_x][new_y].cost = new_cost;
                                     cand[new_x][new_y].x = new_x;
@@ -257,9 +288,11 @@ main ()
                                     cand[new_x][new_y].prev_y = y;
 
                                     bucket = new_cost / stats->delta;
-                                    stats->buckets_map[new_x][new_y] = bucket;
+                                    if (stats->buckets_map[new_x][new_y] == -1 || stats->buckets_map[new_x][new_y] > bucket){stats->buckets_map[new_x][new_y] = bucket;}
+                                    
                                     
                                     if (bucket ==  stats->current_bucket) stats->in_bucket_current = 1;
+                                }
                                 }
                                 
 
@@ -270,7 +303,7 @@ main ()
             }
 
         }
-        #pragma omp parallel for private(x, y) shared(stats) collapse(2)
+        // #pragma omp parallel for private(x, y) shared(stats) collapse(2)
         for (x = 0; x < x_size; x++){
             for (y = 0; y < y_size; y++){
                 if (stats->deleted_map[x][y] != 1){
@@ -304,7 +337,7 @@ main ()
                             cand[new_x][new_y].prev_y = y;
 
                             bucket = new_cost / stats->delta;
-                            stats->buckets_map[new_x][new_y] = bucket;
+                            if (stats->buckets_map[new_x][new_y] == -1 || stats->buckets_map[new_x][new_y] > bucket){stats->buckets_map[new_x][new_y] = bucket;}
 
                             if (bucket ==  stats->current_bucket) stats->in_bucket_current = 1;
                         }

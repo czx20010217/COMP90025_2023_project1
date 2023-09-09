@@ -281,67 +281,14 @@ main ()
     int y_end = y_size - 1;
     node *pivot;
 
+    for (int x = 0; x < x_size; x++){
+        for (int y = 0; y < y_size; y++){
+            double result = cell_cost(board[x][y], &par);
+            printf("seed: %3.1f, result: %3.5f\n", board[x][y], result);
 
-    clock_t t = clock();
-
-    while (!is_equal(pivot = pq_pop_min(), x_end, y_end)){
-        pivot->is_closed = CLOSED;
-        int cost = pivot->cost;
-        int c_x = pivot->x;
-        int c_y = pivot->y;
-
-
-        #pragma omp parallel for collapse(2) firstprivate(cost, c_x, c_y)
-        for (int x = -1; x <= 1; x++) {
-            for (int y = -1; y <= 1; y++) {
-                int new_x = c_x + x;
-                int new_y = c_y + y;
-                
-                // printf ("x, y: %d, %d\n", x, y);
-                if (new_x < 0 || new_x > x_end || new_y < 0 || new_y > y_end
-                              || (x == 0 && y == 0))
-                    continue;
-                if (!cand[new_x][new_y].is_closed){
-                    double node_cost;
-                    if (cost_board[new_x][new_y] == -1){
-                        node_cost = cell_cost(board[new_x][new_y], &par);
-                        cost_board[new_x][new_y] = node_cost;
-                    }else{
-                        node_cost = cost_board[new_x][new_y];
-                    }
-                    if (cost + node_cost < cand[new_x][new_y].cost) {
-                        /* Note: this calculates costs multiple times */
-                        /* You will probably want to avoid that, */
-                        /* but this version is easy to parallelize. */
-                        cand[new_x][new_y].cost = cost + node_cost;
-                        cand[new_x][new_y].x = new_x;
-                        cand[new_x][new_y].y = new_y;
-                        cand[new_x][new_y].prev_x = c_x;
-                        cand[new_x][new_y].prev_y = c_y;
-                        /* Here we simply insert a better path into the PQ. */
-                        /* It is more efficient to change the weight of */
-                        /* the old entry, but this also works. */
-                        //pq_insert (&(cand[new_x][new_y]));
-                        #pragma omp critical
-                        {pq_insert (&(cand[new_x][new_y]));}
-                        
-                    }
-                }
-            }
         }
-        
     }
-    node *p = &cand[x_end][y_end];
-    printf("finalcost: %f\n", p->cost);
-    while (!is_equal(p, 0, 0)) {
-        printf ("%d %d\n", p->x, p->y);
-        printf("current cost: %f\n", p->cost);
-        p = &(cand[p->prev_x][p->prev_y]);
-    }
-    printf ("%d %d\n", 0, 0);
     
-    printf ("Time: %ld\n", clock() - t);
-    printf ("ended: \n");
 
     printf("count ended: %d\n", functionCallCount);
     return 0;

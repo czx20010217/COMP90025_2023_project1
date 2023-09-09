@@ -3,6 +3,7 @@
 #include <string.h>
 #include <float.h>      // for DBL_MAX
 #include <time.h>       // for clock()
+#include <sys/time.h>       // for clock()
 
 #define MAX_NODES 100000
 
@@ -15,7 +16,15 @@
 //#define DEBUG1(x) x
 #define DEBUG1(x)
 
-int functionCallCount = 0;
+// From https://stackoverflow.com/questions/17432502/how-can-i-measure-cpu-time-and-wall-clock-time-on-both-linux-windows
+double get_wall_time() {
+    struct timeval time;
+    if (gettimeofday(&time,NULL)){
+        //  Handle error
+        return 0;
+    }
+    return (double)time.tv_sec + (double)time.tv_usec * .000001;
+}
 
 void
 assert_msg (int cond, char *msg)
@@ -65,17 +74,13 @@ typedef struct {
 double
 cell_cost (long int seed, params *par)
 {
-    functionCallCount++;
-    // const unsigned long a = 16807;
-    // const unsigned long m = 2147483647;
+    const unsigned long a = 16807;
+    const unsigned long m = 2147483647;
 
     /* For debugging only */
-    return (seed);
+    // return (seed);
 
     /* Real code */
-    const long a = 16807;
-    const long m = 2147483647;
-
     seed = -seed;       // Make high bits non-zero
     int res   = par->par1;
     int scale = par->par2;
@@ -246,11 +251,11 @@ a_star (double **board, int x_size, int y_size, params par)
 
     node *pivot;
     node **cand = init_cand (x_size, y_size);
-    cand[0][0].cost = board[0][0];
+    cand[0][0].cost = cell_cost (board[0][0], &par);
 
     while (!is_equal(pivot = pq_pop_min(), x_end, y_end)) {
         pivot->is_closed = CLOSED;
-        printf ("x, y: %d, %d\n", pivot->x, pivot->y);
+
         /* Expand all neighbours */
         for (int dx = -1; dx <= 1; dx++) {
             for (int dy = -1; dy <= 1; dy++) {
@@ -283,10 +288,10 @@ a_star (double **board, int x_size, int y_size, params par)
 
     node *p = &cand[x_end][y_end];
     while (!is_equal(p, 0, 0)) {
-        printf ("%d %d\n", p->x, p->y);
+        printf ("%d %d %g %g\n", p->x, p->y, board[p->x][p->y], p->cost);
         p = &(cand[p->prev_x][p->prev_y]);
     }
-    printf ("%d %d\n", 0, 0);
+    printf ("%d %d %g %g\n", 0, 0, board[0][0], p->cost);
 }
 
 /******************************************************************************/
@@ -305,8 +310,9 @@ main ()
 
 
     clock_t t = clock();
+    double w = get_wall_time ();
     a_star (board, x_size, y_size, par);
-    printf ("Time: %ld\n", clock() - t);
-    printf("count ended: %d\n", functionCallCount);
+    printf ("Time: %ld %lf\n", clock() - t, get_wall_time() - w);
+
     return 0;
 }

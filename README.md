@@ -2,6 +2,7 @@
 
 gcc -O3 -fopenmp -o test1 test1.c
 .\test1 < input1.txt
+./test1 < input1.txt
 
 gcc -O3 -fopenmp -o delta delta.c
 .\delta < input1.txt
