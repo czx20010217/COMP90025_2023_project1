@@ -8,6 +8,7 @@
 #include <float.h>      // for DBL_MAX
 #include <time.h>       // for clock()
 #include<unistd.h>
+#include <assert.h>
 
 #define MAX_NODES 100000
 
@@ -34,7 +35,7 @@ typedef struct{
     int  in_buckets_total;
     int  current_bucket;
     int  processed_nodes;
-    double  delta;
+    int  delta;
 } status;
 
 typedef struct {
@@ -146,12 +147,15 @@ init_cand (int x_size, int y_size)
     return cand;
 }
 
-int relax(int x, int y, int new_x, int new_y, double cost, status* stats, node **cand){
-    double new_cost = cand[x][y].cost + cost;
+int relax(int x, int y, int new_x, int new_y, double new_cost, status* stats, node **cand){
     int bucket;
+    int flag = 0;
     if(new_cost < cand[new_x][new_y].cost){
         
-        if(stats->buckets_map[new_x][new_y] == -1){stats->in_buckets_total++;}
+        if(stats->buckets_map[new_x][new_y] == -1){
+            stats->in_buckets_total += 1;
+            flag = 1;
+        }
         
 
         cand[new_x][new_y].cost = new_cost;
@@ -161,11 +165,17 @@ int relax(int x, int y, int new_x, int new_y, double cost, status* stats, node *
         cand[new_x][new_y].prev_y = y;
 
         bucket = new_cost / stats->delta;
-        if (stats->buckets_map[new_x][new_y] == -1 || stats->buckets_map[new_x][new_y] > bucket){stats->buckets_map[new_x][new_y] = bucket;}
+        // if (stats->buckets_map[new_x][new_y] == -1 || stats->buckets_map[new_x][new_y] > bucket){stats->buckets_map[new_x][new_y] = bucket;}
+        stats->buckets_map[new_x][new_y] = bucket;
         
         
         if (bucket ==  stats->current_bucket) stats->in_bucket_current = 1;
     }
+    return flag;
+}
+
+int get_min_bucket(int** node_list, int x_size, int y_size){
+
 }
 
 int
@@ -216,7 +226,7 @@ main ()
     stats->in_buckets_total = 1;
     stats->current_bucket = 0;
     stats->processed_nodes = 0;
-    stats->delta = 150;
+    stats->delta = 100;
     int activeVertices = 1;
     int x, y, dx, dy;
     double cost, new_cost;
@@ -240,8 +250,11 @@ main ()
         while(stats->in_bucket_current){
             // for (int i = 0; i < y_size; i++) { for (int j = 0; j < x_size; j++) { printf ("(%lg)%5.1lg", board[i][j], cand[i][j].cost); } printf ("\n"); }
             stats->in_bucket_current = 0;
+            int old_total = stats->in_buckets_total;
+            int new_bucket = 0;
+            // for (int i = 0; i < y_size; i++) { for (int j = 0; j < x_size; j++) { printf ("(%lg)%5.1lg", board[i][j], stats->buckets_map[i][j]); } printf ("\n"); }
 
-            #pragma omp parallel for private(x, y) shared(stats) collapse(2) schedule(dynamic)////reduction(+ : activeVertices)
+            #pragma omp parallel for private(x, y) shared(stats) collapse(2) schedule(dynamic) reduction(+ : new_bucket)
             for (x = 0; x < x_size; x++){
                 for (y = 0; y < y_size; y++){
                     if(__sync_bool_compare_and_swap(&(stats->buckets_map[x][y]), stats->current_bucket, -1)){
@@ -253,15 +266,15 @@ main ()
                         #pragma omp critical
                         {
                             stats->in_buckets_total--;
+                            new_bucket += -1;
                         }
-                        
-
+                        // printf("first time here\n");
                         // 8 direction visit
-                        // #pragma omp parallel for collapse(2)
                         for (int dx = -1; dx <= 1; dx++) {
                             for (int dy = -1; dy <= 1; dy++) {
                                 int new_x = x + dx;
                                 int new_y = y + dy;
+                                int result;
                                 if (new_x < 0 || new_x > x_end || new_y < 0 || new_y > y_end
                                             || (dx == 0 && dy == 0))
                                     continue;
@@ -278,17 +291,28 @@ main ()
 
                                 #pragma omp critical
                                 {
-                                    relax(x, y, new_x, new_y, cost, stats, cand);
+                                    result = relax(x, y, new_x, new_y, cand[x][y].cost + cost, stats, cand);
                                 }
                                 
+                                if (result){
+                                    new_bucket += 1;
+                                }
 
                             }
                         }
                     }
                 }
             }
-
+            for (x = 0; x < x_size; x++){
+                for (y = 0; y < y_size; y++){
+                    assert(stats->buckets_map[x][y] == -1 || stats->buckets_map[x][y] >= stats->current_bucket);
+                }
+            }
+            assert(stats->in_buckets_total - old_total == new_bucket);
         }
+
+        int old_total = stats->in_buckets_total;
+        int new_bucket = 0;
         #pragma omp parallel for private(x, y) shared(stats) collapse(2)
         for (x = 0; x < x_size; x++){
             for (y = 0; y < y_size; y++){
@@ -299,6 +323,7 @@ main ()
                     for (int dy = -1; dy <= 1; dy++) {
                         int new_x = x + dx;
                         int new_y = y + dy;
+                        int result;
                         if (new_x < 0 || new_x > x_end || new_y < 0 || new_y > y_end
                                     || (dx == 0 && dy == 0))
                             continue;
@@ -313,13 +338,25 @@ main ()
                         if (cost < stats->delta) continue;
                         #pragma omp critical
                         {
-                            relax(x, y, new_x, new_y, cost, stats, cand);
+                            result = relax(x, y, new_x, new_y, cand[x][y].cost + cost, stats, cand);
+                        }
+
+                        if (result){
+                            new_bucket += 1;
                         }
                     }
                 }
             }
         }
+        assert(stats->in_buckets_total - old_total == new_bucket);
+        assert(stats->in_bucket_current == 0);
+        for (x = 0; x < x_size; x++){
+            for (y = 0; y < y_size; y++){
+                assert(stats->buckets_map[x][y] == -1 || stats->buckets_map[x][y] > stats->current_bucket);
+            }
+        }
         stats->current_bucket++;
+        
     }
     node *p = &cand[x_end][y_end];
     printf("finalcost: %f\n", p->cost);
