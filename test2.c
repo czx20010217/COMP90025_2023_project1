@@ -301,32 +301,29 @@ main ()
         // #pragma omp parallel for private(x, y) shared(stats) collapse(2)
         for (x = 0; x < x_size; x++){
             for (y = 0; y < y_size; y++){
-                if (stats->deleted_map[x][y] != stats->current_bucket){
-                    continue;
-                }
-                #pragma omp critical
-                {
-                for (int dx = -1; dx <= 1; dx++) {
-                    for (int dy = -1; dy <= 1; dy++) {
-                        int new_x = x + dx;
-                        int new_y = y + dy;
-                        if (new_x < 0 || new_x > x_end || new_y < 0 || new_y > y_end
-                                    || (dx == 0 && dy == 0))
-                            continue;
+                if (stats->deleted_map[x][y] == stats->current_bucket){
+                    for (int dx = -1; dx <= 1; dx++) {
+                        for (int dy = -1; dy <= 1; dy++) {
+                            int new_x = x + dx;
+                            int new_y = y + dy;
+                            if (new_x < 0 || new_x > x_end || new_y < 0 || new_y > y_end
+                                        || (dx == 0 && dy == 0))
+                                continue;
 
-                        if (cost_board[new_x][new_y] == -1){
-                            cost = cell_cost(board[new_x][new_y], &par);
-                            cost_board[new_x][new_y] = cost;
-                        }else{
-                            cost = cost_board[new_x][new_y];
+                            if (cost_board[new_x][new_y] == -1){
+                                cost = cell_cost(board[new_x][new_y], &par);
+                                cost_board[new_x][new_y] = cost;
+                            }else{
+                                cost = cost_board[new_x][new_y];
+                            }
+                            // check heavy
+                            if (cost <= stats->delta) continue;
+                            #pragma omp critical
+                            relax(x, y, new_x, new_y, cost, stats, cand);
                         }
-                        // check heavy
-                        if (cost <= stats->delta) continue;
-                        #pragma omp critical
-                        relax(x, y, new_x, new_y, cost, stats, cand);
                     }
                 }
-                }
+                
             }
         }
         stats->current_bucket++;
