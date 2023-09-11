@@ -180,21 +180,24 @@ cell_cost (long int seed, params *par)
     functionCallCount++;
     // const unsigned long a = 16807;
     // const unsigned long m = 2147483647;
-
     /* For debugging only */
     // return (seed);
+
+    /* Real code */
     long a = 16807;
     long m = 2147483647;
-    /* Real code */
+
     seed = -seed;       // Make high bits non-zero
     int res   = par->par1;
     int scale = par->par2;
 
     int cost;
+    // printf("current input: %ld, %d, %d\n", seed, res, scale);
     
     for (cost = 0; seed >> res != 0; cost++) {
         seed = (a * seed) % m;
     }
+    // printf("finish\n");
 
     return (10 + (cost >> (8 * sizeof(unsigned long) - res - scale))) / 10.0;
 }
