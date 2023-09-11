@@ -146,23 +146,26 @@ init_cand (int x_size, int y_size)
     return cand;
 }
 
-int relaex(int x, int y, int new_x, int new_y, double cost, status* stats, node **cand){
-    int old_bucket;
-    int new_bucket;
-    double old_distance_src;
-    double old_distance_dest;
-    int new_distance;
-    int flag1 = 0;
-    int flag2 = 0;
+int relax(int x, int y, int new_x, int new_y, double cost, status* stats, node **cand){
+    double new_cost = cand[x][y].cost + cost;
+    int bucket;
+    if(new_cost < cand[new_x][new_y].cost){
+        
+        if(stats->buckets_map[new_x][new_y] == -1){stats->in_buckets_total++;}
+        
 
-    do
-    {
-        old_bucket = stats->buckets_map[new_x][new_y];
-        old_distance_src = cand[x][y].cost;
-        old_distance_dest = cand[new_x][new_y].cost;
+        cand[new_x][new_y].cost = new_cost;
+        cand[new_x][new_y].x = new_x;
+        cand[new_x][new_y].y = new_y;
+        cand[new_x][new_y].prev_x = x;
+        cand[new_x][new_y].prev_y = y;
 
-    } while ((!flag1));
-    return 0;
+        bucket = new_cost / stats->delta;
+        if (stats->buckets_map[new_x][new_y] == -1 || stats->buckets_map[new_x][new_y] > bucket){stats->buckets_map[new_x][new_y] = bucket;}
+        
+        
+        if (bucket ==  stats->current_bucket) stats->in_bucket_current = 1;
+    }
 }
 
 int
@@ -275,24 +278,7 @@ main ()
 
                                 #pragma omp critical
                                 {
-                                new_cost = cand[x][y].cost + cost;
-                                if(new_cost < cand[new_x][new_y].cost){
-                                    
-                                    if(stats->buckets_map[new_x][new_y] == -1){stats->in_buckets_total++;}
-                                    
-
-                                    cand[new_x][new_y].cost = new_cost;
-                                    cand[new_x][new_y].x = new_x;
-                                    cand[new_x][new_y].y = new_y;
-                                    cand[new_x][new_y].prev_x = x;
-                                    cand[new_x][new_y].prev_y = y;
-
-                                    bucket = new_cost / stats->delta;
-                                    if (stats->buckets_map[new_x][new_y] == -1 || stats->buckets_map[new_x][new_y] > bucket){stats->buckets_map[new_x][new_y] = bucket;}
-                                    
-                                    
-                                    if (bucket ==  stats->current_bucket) stats->in_bucket_current = 1;
-                                }
+                                    relax(x, y, new_x, new_y, cost, stats, cand);
                                 }
                                 
 
@@ -303,7 +289,7 @@ main ()
             }
 
         }
-        // #pragma omp parallel for private(x, y) shared(stats) collapse(2)
+        #pragma omp parallel for private(x, y) shared(stats) collapse(2)
         for (x = 0; x < x_size; x++){
             for (y = 0; y < y_size; y++){
                 if (stats->deleted_map[x][y] != 1){
@@ -325,21 +311,9 @@ main ()
                         }
                         // check heavy
                         if (cost < stats->delta) continue;
-                        new_cost = cand[x][y].cost + cost;
-                        if(new_cost < cand[new_x][new_y].cost){
-                            #pragma omp critical
-                            if(stats->buckets_map[new_x][new_y] == -1) stats->in_buckets_total++;
-
-                            cand[new_x][new_y].cost = new_cost;
-                            cand[new_x][new_y].x = new_x;
-                            cand[new_x][new_y].y = new_y;
-                            cand[new_x][new_y].prev_x = x;
-                            cand[new_x][new_y].prev_y = y;
-
-                            bucket = new_cost / stats->delta;
-                            if (stats->buckets_map[new_x][new_y] == -1 || stats->buckets_map[new_x][new_y] > bucket){stats->buckets_map[new_x][new_y] = bucket;}
-
-                            if (bucket ==  stats->current_bucket) stats->in_bucket_current = 1;
+                        #pragma omp critical
+                        {
+                            relax(x, y, new_x, new_y, cost, stats, cand);
                         }
                     }
                 }
