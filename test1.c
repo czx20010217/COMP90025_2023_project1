@@ -178,14 +178,14 @@ double
 cell_cost (long int seed, params *par)
 {
     functionCallCount++;
-    const unsigned long a = 16807;
-    const unsigned long m = 2147483647;
+    //const unsigned long a = 16807;
+    //const unsigned long m = 2147483647;
     /* For debugging only */
     // return (seed);
 
     /* Real code */
-    // long a = 16807;
-    // long m = 2147483647;
+    long a = 16807;
+    long m = 2147483647;
 
     seed = -seed;       // Make high bits non-zero
     int res   = par->par1;
