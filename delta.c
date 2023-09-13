@@ -8,13 +8,24 @@
 #include <limits.h>
 #include <float.h>      // for DBL_MAX
 #include <time.h>       // for clock()
-#include<unistd.h>
+#include <sys/time.h>       // for clock()
+#include <unistd.h>
 #include <assert.h>
 
 #define MAX_NODES 100000
 
 #define _inline
 //#define _inline inline
+
+// From https://stackoverflow.com/questions/17432502/how-can-i-measure-cpu-time-and-wall-clock-time-on-both-linux-windows
+double get_wall_time() {
+    struct timeval time;
+    if (gettimeofday(&time,NULL)){
+        //  Handle error
+        return 0;
+    }
+    return (double)time.tv_sec + (double)time.tv_usec * .000001;
+}
 
 int functionCallCount = 0;
 
@@ -210,6 +221,7 @@ main ()
     status *stats = (status*) malloc(sizeof(status));
 
     clock_t t = clock();
+    double w = get_wall_time ();
 
     // init bucket map and deleted_map
     stats->buckets_map = (int **)malloc(x_size * sizeof(int *));
@@ -254,7 +266,7 @@ main ()
 
     while (stats->in_buckets_total){
         // for (int i = 0; i < y_size; i++) { for (int j = 0; j < x_size; j++) { printf ("(%lg)%5.1lg", board[i][j], cand[i][j].cost); } printf ("\n"); }
-        printf("current count: %d %d\n", functionCallCount, stats->in_buckets_total);
+        // printf("current count: %d %d\n", functionCallCount, stats->in_buckets_total);
         // printf("current end cost: %5.1f\n", cand[x_end][y_end].cost);
         stats->processed_nodes += activeVertices;
         activeVertices = 0;
@@ -266,7 +278,7 @@ main ()
             int new_bucket = 0;
             // for (int i = 0; i < y_size; i++) { for (int j = 0; j < x_size; j++) { printf ("(%lg)%5.1lg", board[i][j], stats->buckets_map[i][j]); } printf ("\n"); }
 
-            #pragma omp parallel for private(x, y, cost) shared(stats) collapse(2) schedule(dynamic) reduction(+ : new_bucket)
+            // #pragma omp parallel for private(x, y, cost) shared(stats) collapse(2) schedule(dynamic) reduction(+ : new_bucket)
             for (x = 0; x < x_size; x++){
                 for (y = 0; y < y_size; y++){
                     if(__sync_bool_compare_and_swap(&(stats->buckets_map[x][y]), stats->current_bucket, -1)){
@@ -328,7 +340,7 @@ main ()
 
         int old_total = stats->in_buckets_total;
         int new_bucket = 0;
-        #pragma omp parallel for private(x, y, cost) shared(stats) collapse(2)
+        // #pragma omp parallel for private(x, y, cost) shared(stats) collapse(2)
         for (x = 0; x < x_size; x++){
             for (y = 0; y < y_size; y++){
                 if (__sync_bool_compare_and_swap(&(stats->deleted_map[x][y]), 1, -1)){
@@ -381,12 +393,12 @@ main ()
 
 
     while (!is_equal(p, 0, 0)) {
-        printf ("%d %d\n", p->x, p->y);
+        printf ("%d %d %g %g\n", p->x, p->y, board[p->x][p->y], p->cost);
         // printf("current cost: %f\n", p->cost);
         p = &(cand[p->prev_x][p->prev_y]);
     }
-    printf ("%d %d\n", 0, 0);
-    printf ("Time: %ld\n", clock() - t);
+    printf ("%d %d %g %g\n", 0, 0, board[0][0], p->cost);
+    printf ("Time: %ld %lf\n", clock() - t, get_wall_time() - w);
 
     printf("count ended: %d\n", functionCallCount);
     //for (int i = 0; i < y_size; i++) { for (int j = 0; j < x_size; j++) { printf ("(%lg)%5.1lg", board[i][j], stats->buckets_map[i][j]); } printf ("\n"); }
