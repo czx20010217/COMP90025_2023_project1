@@ -17,6 +17,12 @@
 #define _inline
 //#define _inline inline
 
+//#define DEBUG(x) x
+#define DEBUG(x)
+
+//#define DEBUG1(x) x
+#define DEBUG1(x)
+
 // From https://stackoverflow.com/questions/17432502/how-can-i-measure-cpu-time-and-wall-clock-time-on-both-linux-windows
 double get_wall_time() {
     struct timeval time;
@@ -54,11 +60,9 @@ typedef struct {
     int    x, y;
     int    prev_x, prev_y;
     double cost;
+    int bucket;
+    int pos;
 } node;
-
-typedef struct {
-    int par1, par2;
-} params;
 
 _inline int
 is_equal (node* n, int x, int y)
@@ -71,8 +75,23 @@ is_equal (node* n, int x, int y)
 _inline int
 greater (node *n1, node *n2)
 {
-    return (n1->cost > n2->cost);
+    return (n1->bucket > n2->bucket);
 }
+
+/******************************************************************************/
+/*
+ * Calculate the cost of each square in the grid, given its seed.
+ * This is deliberately expensive so that overall program run-time is not
+ * dominated by overheads.
+ * More computationally expensive if res is smaller.
+ * Wider range of costs if scale is larger.
+ *
+ * Based on Park and Miller's Oct 1988 CACM random number generator
+ */
+
+typedef struct {
+    int par1, par2;
+} params;
 
 double
 cell_cost (long int seed, params *par)
@@ -152,8 +171,12 @@ init_cand (int x_size, int y_size)
 
     for (int i = 0; i < x_size; i++) {
         cand[i] = cand_data + i*y_size;
-        for (int j = 0; j < y_size; j++)
+        for (int j = 0; j < y_size; j++){
+            cand[i][j].bucket = -1;
+            cand[i][j].pos = -1;
             cand[i][j].cost = DBL_MAX;
+        }
+            
     }
 
     return cand;
@@ -188,6 +211,8 @@ int relax(int x, int y, int new_x, int new_y, double new_cost, status* stats, no
     return flag;
 }
 
+
+
 int get_min_bucket(int** node_list, int x_size, int y_size, status* stats){
     int min_bucket = 10000000;
     for (int x = 0; x < x_size; x++){
@@ -199,6 +224,16 @@ int get_min_bucket(int** node_list, int x_size, int y_size, status* stats){
         }
     }
     return min_bucket;
+}
+
+double get_cost(double** cost_board, double** seed_board, int x, int y, params *par){
+    double cost;
+    if (cost_board[x][y] == -1){
+        cost = cell_cost(seed_board[x][y], par);
+        cost_board[x][y] = cost;
+    }else{
+        cost = cost_board[x][y];
+    }
 }
 
 int
@@ -236,12 +271,14 @@ main ()
     }
 
     stats->board = board;
+    omp_lock_t lock[x_size][y_size];
 
     // #pragma omp parallel for
     for (int i = 0; i < x_size; i++){
         for (int j = 0; j < y_size; j++){
             stats->buckets_map[i][j] = -1;
             stats->deleted_map[i][j] = 0;
+            omp_init_lock(&(lock[i][j]));
         }
             
     }
@@ -255,7 +292,6 @@ main ()
     int x, y, dx, dy;
     double cost, new_cost;
     int bucket;
-
 
     node **cand = init_cand (x_size, y_size);
     cost_board[0][0] = cell_cost(board[0][0], &par);
@@ -278,7 +314,7 @@ main ()
             int new_bucket = 0;
             // for (int i = 0; i < y_size; i++) { for (int j = 0; j < x_size; j++) { printf ("(%lg)%5.1lg", board[i][j], stats->buckets_map[i][j]); } printf ("\n"); }
 
-            // #pragma omp parallel for private(x, y, cost) shared(stats) collapse(2) schedule(dynamic) reduction(+ : new_bucket)
+            #pragma omp parallel for private(x, y, cost) shared(stats) collapse(2) schedule(dynamic) reduction(+ : new_bucket)
             for (x = 0; x < x_size; x++){
                 for (y = 0; y < y_size; y++){
                     if(__sync_bool_compare_and_swap(&(stats->buckets_map[x][y]), stats->current_bucket, -1)){
@@ -302,12 +338,16 @@ main ()
                                 if (new_x < 0 || new_x > x_end || new_y < 0 || new_y > y_end
                                             || (dx == 0 && dy == 0))
                                     continue;
+
+
+                                omp_set_lock(&(lock[new_x][new_y]));
                                 if (cost_board[new_x][new_y] == -1){
                                     cost = cell_cost(board[new_x][new_y], &par);
                                     cost_board[new_x][new_y] = cost;
                                 }else{
                                     cost = cost_board[new_x][new_y];
                                 }
+                                omp_unset_lock(&(lock[new_x][new_y]));
 
                                 
 
@@ -340,7 +380,7 @@ main ()
 
         int old_total = stats->in_buckets_total;
         int new_bucket = 0;
-        // #pragma omp parallel for private(x, y, cost) shared(stats) collapse(2)
+        #pragma omp parallel for private(x, y, cost) shared(stats) collapse(2)
         for (x = 0; x < x_size; x++){
             for (y = 0; y < y_size; y++){
                 if (__sync_bool_compare_and_swap(&(stats->deleted_map[x][y]), 1, -1)){

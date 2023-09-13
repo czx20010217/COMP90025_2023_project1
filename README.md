@@ -7,6 +7,7 @@ gcc -O3 -fopenmp -o test1 test1.c
 
 gcc -O3 -fopenmp -o delta delta.c
 .\delta < input1.txt
+.\delta < grid10x10edge.txt
 
 
 
