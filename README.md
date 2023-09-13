@@ -1,7 +1,8 @@
 # COMP90025_2023_project1
 
 gcc -O3 -fopenmp -o test1 test1.c
-.\test1 < input1.txt
+.\test1 < input1.txt 
+.\test1 < grid10x10faster.txt
 ./test1 < input1.txt
 
 gcc -O3 -fopenmp -o delta delta.c
