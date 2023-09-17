@@ -5,17 +5,23 @@
 #include <string.h>
 #include <sched.h>
 #include <omp.h>
+#include <limits.h>
 #include <float.h>      // for DBL_MAX
 #include <time.h>       // for clock()
 #include <sys/time.h>       // for clock()
-#include<unistd.h>
+#include <unistd.h>
+#include <assert.h>
 
 #define MAX_NODES 100000
 
 #define _inline
 //#define _inline inline
 
-int functionCallCount = 0;
+//#define DEBUG(x) x
+#define DEBUG(x)
+
+//#define DEBUG1(x) x
+#define DEBUG1(x)
 
 // From https://stackoverflow.com/questions/17432502/how-can-i-measure-cpu-time-and-wall-clock-time-on-both-linux-windows
 double get_wall_time() {
@@ -26,6 +32,8 @@ double get_wall_time() {
     }
     return (double)time.tv_sec + (double)time.tv_usec * .000001;
 }
+
+int functionCallCount = 0;
 
 void
 assert_msg (int cond, char *msg)
@@ -45,24 +53,16 @@ typedef struct{
     int  in_buckets_total;
     int  current_bucket;
     int  processed_nodes;
-    double  delta;
+    int  delta;
 } status;
 
 typedef struct {
     int    x, y;
     int    prev_x, prev_y;
     double cost;
+    int bucket;
+    int pos;
 } node;
-
-typedef struct {
-    int par1, par2;
-} params;
-
-_inline int
-node_equal (node a, node b)
-{
-    return (a.x == b.x && a.y == b.y && a.cost == b.cost);
-}
 
 _inline int
 is_equal (node* n, int x, int y)
@@ -75,31 +75,51 @@ is_equal (node* n, int x, int y)
 _inline int
 greater (node *n1, node *n2)
 {
-    return (n1->cost > n2->cost);
+    return (n1->bucket > n2->bucket);
 }
+
+/******************************************************************************/
+/*
+ * Calculate the cost of each square in the grid, given its seed.
+ * This is deliberately expensive so that overall program run-time is not
+ * dominated by overheads.
+ * More computationally expensive if res is smaller.
+ * Wider range of costs if scale is larger.
+ *
+ * Based on Park and Miller's Oct 1988 CACM random number generator
+ */
+
+typedef struct {
+    int par1, par2;
+} params;
 
 double
 cell_cost (long int seed, params *par)
 {
+    #pragma omp critical
     functionCallCount++;
     const unsigned long a = 16807;
     const unsigned long m = 2147483647;
-
     /* For debugging only */
     // return (seed);
 
     /* Real code */
+
     seed = -seed;       // Make high bits non-zero
     int res   = par->par1;
     int scale = par->par2;
 
     int cost;
+    // printf("current input: %ld, %d, %d\n", seed, res, scale);
     
     for (cost = 0; seed >> res != 0; cost++) {
         seed = (a * seed) % m;
     }
+    // printf("finish\n");
 
     return (10 + (cost >> (8 * sizeof(unsigned long) - res - scale))) / 10.0;
+    // return (seed);
+
 }
 
 double **
@@ -149,19 +169,26 @@ init_cand (int x_size, int y_size)
 
     for (int i = 0; i < x_size; i++) {
         cand[i] = cand_data + i*y_size;
-        for (int j = 0; j < y_size; j++)
+        for (int j = 0; j < y_size; j++){
+            cand[i][j].bucket = -1;
+            cand[i][j].pos = -1;
             cand[i][j].cost = DBL_MAX;
+        }
+            
     }
 
     return cand;
 }
 
-int relax(int x, int y, int new_x, int new_y, double cost, status* stats, node** cand){
-    double new_cost = cand[x][y].cost + cost;
+int relax(int x, int y, int new_x, int new_y, double new_cost, status* stats, node **cand){
+    int bucket;
+    int flag = 0;
     if(new_cost < cand[new_x][new_y].cost){
-        int bucket = new_cost / stats->delta;
+        //printf("in\n");
+        
         if(stats->buckets_map[new_x][new_y] == -1){
-            stats->in_buckets_total++;
+            stats->in_buckets_total += 1;
+            flag = 1;
         }
         
 
@@ -171,11 +198,39 @@ int relax(int x, int y, int new_x, int new_y, double cost, status* stats, node**
         cand[new_x][new_y].prev_x = x;
         cand[new_x][new_y].prev_y = y;
 
-        
+        bucket = new_cost / stats->delta;
         // if (stats->buckets_map[new_x][new_y] == -1 || stats->buckets_map[new_x][new_y] > bucket){stats->buckets_map[new_x][new_y] = bucket;}
         stats->buckets_map[new_x][new_y] = bucket;
         
+        
         if (bucket ==  stats->current_bucket) stats->in_bucket_current = 1;
+        //printf("out\n");
+    }
+    return flag;
+}
+
+
+
+int get_min_bucket(int** node_list, int x_size, int y_size, status* stats){
+    int min_bucket = 10000000;
+    for (int x = 0; x < x_size; x++){
+        for (int y = 0; y < y_size; y++){
+            if (stats->buckets_map[x][y] != -1 && stats->buckets_map[x][y] < min_bucket){
+                min_bucket = stats->buckets_map[x][y];
+            }
+            
+        }
+    }
+    return min_bucket;
+}
+
+double get_cost(double** cost_board, double** seed_board, int x, int y, params *par){
+    double cost;
+    if (cost_board[x][y] == -1){
+        cost = cell_cost(seed_board[x][y], par);
+        cost_board[x][y] = cost;
+    }else{
+        cost = cost_board[x][y];
     }
 }
 
@@ -214,12 +269,14 @@ main ()
     }
 
     stats->board = board;
+    omp_lock_t lock[x_size][y_size];
 
     // #pragma omp parallel for
     for (int i = 0; i < x_size; i++){
         for (int j = 0; j < y_size; j++){
             stats->buckets_map[i][j] = -1;
             stats->deleted_map[i][j] = 0;
+            omp_init_lock(&(lock[i][j]));
         }
             
     }
@@ -228,22 +285,28 @@ main ()
     stats->in_buckets_total = 1;
     stats->current_bucket = 0;
     stats->processed_nodes = 0;
-    stats->delta = 1000;
+    stats->delta = 100;
     int activeVertices = 1;
     int x, y, dx, dy;
     double cost, new_cost;
     int bucket;
 
-
     node **cand = init_cand (x_size, y_size);
     cost_board[0][0] = cell_cost(board[0][0], &par);
-    cand[0][0].cost = cell_cost(board[0][0], &par);
+    cand[0][0].cost = cost_board[0][0];
+    
+    cost_board[x_end][0] = cell_cost(board[x_end][0], &par);
+    cost_board[0][y_end] = cell_cost(board[0][y_end], &par);
+    cost_board[x_end][y_end] = cell_cost(board[x_end][y_end], &par);
+    
+    stats->delta = (cost_board[x_end][y_end]+cost_board[0][0]+cost_board[x_end][0]+cost_board[0][y_end]) / (2*8);
     
     stats->buckets_map[0][0] = 0;
+    printf("here\n");
 
     while (stats->in_buckets_total > 0){
         // for (int i = 0; i < y_size; i++) { for (int j = 0; j < x_size; j++) { printf ("(%lg)%5.1lg", board[i][j], cand[i][j].cost); } printf ("\n"); }
-        printf("current count: %d %d\n", functionCallCount, stats->in_buckets_total);
+        // printf("current count: %d %d\n", functionCallCount, stats->in_buckets_total);
         // printf("current end cost: %5.1f\n", cand[x_end][y_end].cost);
         stats->processed_nodes += activeVertices;
         activeVertices = 0;
@@ -251,12 +314,15 @@ main ()
         while(stats->in_bucket_current){
             // for (int i = 0; i < y_size; i++) { for (int j = 0; j < x_size; j++) { printf ("(%lg)%5.1lg", board[i][j], cand[i][j].cost); } printf ("\n"); }
             stats->in_bucket_current = 0;
+            int old_total = stats->in_buckets_total;
+            int new_bucket = 0;
+            // for (int i = 0; i < y_size; i++) { for (int j = 0; j < x_size; j++) { printf ("(%lg)%5.1lg", board[i][j], stats->buckets_map[i][j]); } printf ("\n"); }
 
-            #pragma omp parallel for private(x, y) shared(stats) collapse(2) schedule(dynamic)////reduction(+ : activeVertices)
+            #pragma omp parallel for private(x, y, cost) shared(stats) collapse(2) schedule(dynamic) reduction(+ : new_bucket)
             for (x = 0; x < x_size; x++){
                 for (y = 0; y < y_size; y++){
                     if(__sync_bool_compare_and_swap(&(stats->buckets_map[x][y]), stats->current_bucket, -1)){
-                        stats->deleted_map[x][y] = stats->current_bucket;
+                        stats->deleted_map[x][y] = 1;
                         // if (stats->in_buckets_total){printf("pos: %d %d\n", x, y);}
 
 
@@ -264,31 +330,48 @@ main ()
                         #pragma omp critical
                         {
                             stats->in_buckets_total--;
+                            new_bucket += -1;
                         }
-                        
-
+                        // printf("first time here\n");
                         // 8 direction visit
-                        // #pragma omp parallel for collapse(2)
                         for (int dx = -1; dx <= 1; dx++) {
                             for (int dy = -1; dy <= 1; dy++) {
                                 int new_x = x + dx;
                                 int new_y = y + dy;
+                                int result;
                                 if (new_x < 0 || new_x > x_end || new_y < 0 || new_y > y_end
                                             || (dx == 0 && dy == 0))
                                     continue;
+
+
+                                omp_set_lock(&(lock[new_x][new_y]));
                                 if (cost_board[new_x][new_y] == -1){
                                     cost = cell_cost(board[new_x][new_y], &par);
                                     cost_board[new_x][new_y] = cost;
                                 }else{
                                     cost = cost_board[new_x][new_y];
                                 }
+                                omp_unset_lock(&(lock[new_x][new_y]));
 
                                 
 
-                                if (cost > stats->delta){ continue;}
+                                if (cost <= stats->delta){
+                                    // #pragma omp critical
+                                    // {
+                                    //     assert(cost <= stats->delta);
+                                    //     result = relax(x, y, new_x, new_y, cand[x][y].cost + cost, stats, cand);
+                                    // }
+                                    omp_set_lock(&(lock[new_x][new_y]));
+                                    #pragma omp critical
+                                    {
+                                        assert(cost <= stats->delta);
+                                        result = relax(x, y, new_x, new_y, cand[x][y].cost + cost, stats, cand);
+                                    }
+                                    omp_unset_lock(&(lock[new_x][new_y]));
 
-                                #pragma omp critical
-                                relax(x, y, new_x, new_y, cost, stats, cand);
+
+                                }
+
                                 
 
                             }
@@ -296,16 +379,25 @@ main ()
                     }
                 }
             }
-
+            // for (x = 0; x < x_size; x++){
+            //     for (y = 0; y < y_size; y++){
+            //         assert(stats->buckets_map[x][y] == -1 || stats->buckets_map[x][y] >= stats->current_bucket);
+            //     }
+            // }
+            // assert(stats->in_buckets_total - old_total == new_bucket);
         }
-        // #pragma omp parallel for private(x, y) shared(stats) collapse(2)
+
+        int old_total = stats->in_buckets_total;
+        int new_bucket = 0;
+        #pragma omp parallel for private(x, y, cost) shared(stats) collapse(2)
         for (x = 0; x < x_size; x++){
             for (y = 0; y < y_size; y++){
-                if (stats->deleted_map[x][y] == stats->current_bucket){
+                if (__sync_bool_compare_and_swap(&(stats->deleted_map[x][y]), 1, -1)){
                     for (int dx = -1; dx <= 1; dx++) {
                         for (int dy = -1; dy <= 1; dy++) {
                             int new_x = x + dx;
                             int new_y = y + dy;
+                            int result;
                             if (new_x < 0 || new_x > x_end || new_y < 0 || new_y > y_end
                                         || (dx == 0 && dy == 0))
                                 continue;
@@ -317,31 +409,48 @@ main ()
                                 cost = cost_board[new_x][new_y];
                             }
                             // check heavy
-                            if (cost <= stats->delta) continue;
-                            #pragma omp critical
-                            relax(x, y, new_x, new_y, cost, stats, cand);
+                            if (cost > stats->delta){
+                                #pragma omp critical
+                                {
+                                    assert(cost > stats->delta);
+                                    result = relax(x, y, new_x, new_y, cand[x][y].cost + cost, stats, cand);
+                                }
+
+                                if (result){
+                                    new_bucket += 1;
+                                }
+                            }
+                            
                         }
                     }
                 }
                 
             }
         }
+        // //assert(stats->in_buckets_total - old_total == new_bucket);
+        // assert(stats->in_bucket_current == 0);
+        // for (x = 0; x < x_size; x++){
+        //     for (y = 0; y < y_size; y++){
+        //         assert(stats->buckets_map[x][y] == -1 || stats->buckets_map[x][y] > stats->current_bucket);
+        //     }
+        // }
         stats->current_bucket++;
+        
     }
     node *p = &cand[x_end][y_end];
     printf("finalcost: %f\n", p->cost);
 
 
     while (!is_equal(p, 0, 0)) {
-        printf ("%d %d\n", p->x, p->y);
+        printf ("%d %d %g %g\n", p->x, p->y, board[p->x][p->y], p->cost);
         // printf("current cost: %f\n", p->cost);
         p = &(cand[p->prev_x][p->prev_y]);
     }
-    printf ("%d %d\n", 0, 0);
-    
+    printf ("%d %d %g %g\n", 0, 0, board[0][0], p->cost);
     printf ("Time: %ld %lf\n", clock() - t, get_wall_time() - w);
 
     printf("count ended: %d\n", functionCallCount);
+    //for (int i = 0; i < y_size; i++) { for (int j = 0; j < x_size; j++) { printf ("(%lg)%5.1lg", board[i][j], stats->buckets_map[i][j]); } printf ("\n"); }
 
     return 0;
 }

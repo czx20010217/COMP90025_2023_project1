@@ -253,6 +253,12 @@ a_star (double **board, int x_size, int y_size, params par)
     node **cand = init_cand (x_size, y_size);
     cand[0][0].cost = cell_cost (board[0][0], &par);
 
+    for (int i;i<x_size;i++){
+        for (int j;j<y_size;j++){
+            board[i][j] = cell_cost (board[i][j], &par);
+        }
+    }
+
     while (!is_equal(pivot = pq_pop_min(), x_end, y_end)) {
         pivot->is_closed = CLOSED;
 
@@ -268,7 +274,7 @@ a_star (double **board, int x_size, int y_size, params par)
                     /* Note: this calculates costs multiple times */
                     /* You will probably want to avoid that, */
                     /* but this version is easy to parallelize. */
-                    double node_cost = cell_cost(board[new_x][new_y], &par);
+                    double node_cost = board[new_x][new_y];
                     if (pivot->cost + node_cost < cand[new_x][new_y].cost) {
                         cand[new_x][new_y].cost = pivot->cost + node_cost;
                         cand[new_x][new_y].x = new_x;

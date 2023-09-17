@@ -14,4 +14,7 @@ gcc -O3 -fopenmp -o delta delta.c
 make PQ-Dijkstra
 .\PQ-Dijkstra < input1.txt
 
+make solution
+.\solution < input1.txt
+
 the performance of code not using O3 is 19-8 10-4

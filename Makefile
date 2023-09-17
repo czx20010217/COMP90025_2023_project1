@@ -1,7 +1,5 @@
 solution: solution.c
-	# Modify this using any compiler flags you choose, or clang.
-	# Note that this will not currently use OpenMP.
-	gcc solution.c -o solution
+	gcc -Wall -O3 -fopenmp solution.c -o solution
 
 PQ-Dijkstra: PQ-Dijkstra.c
 	gcc -O3 PQ-Dijkstra.c -o PQ-Dijkstra
